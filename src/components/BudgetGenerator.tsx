@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Plus, Trash2, FileDown, Printer, MessageCircle, Loader2, BookmarkPlus, Users, Menu, X } from "lucide-react";
+import { Plus, Trash2, FileDown, Printer, MessageCircle, Loader as Loader2, BookmarkPlus, Users, Menu, X } from "lucide-react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { toast } from "sonner";
@@ -181,6 +181,11 @@ const BudgetGenerator = () => {
     });
 
     const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
+    pdf.setProperties({
+      title: `Presupuesto ${numeroPresupuesto || ''}`,
+      subject: 'Presupuesto',
+      creator: 'Gestor de Presupuestos Pro',
+    });
     const margin = 4;
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
@@ -287,6 +292,7 @@ const BudgetGenerator = () => {
     const style = doc.createElement("style");
     style.textContent = `
       html, body { margin: 0 !important; padding: 0 !important; background: #ffffff !important; }
+      * { box-shadow: none !important; text-shadow: none !important; }
       .max-w-4xl { max-width: 794px !important; width: 794px !important; margin: 0 !important; }
       .budget-card {
         font-family: Helvetica, Arial, sans-serif !important;

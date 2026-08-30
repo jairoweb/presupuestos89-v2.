@@ -111,6 +111,11 @@ All colors MUST be HSL.
     margin: 8mm;
   }
 
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
   html, body {
     background: #ffffff !important;
     margin: 0 !important;
@@ -160,5 +165,11 @@ All colors MUST be HSL.
   .budget-header {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+  }
+
+  .budget-totals {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
   }
 }
