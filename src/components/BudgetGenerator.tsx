@@ -157,6 +157,7 @@ const BudgetGenerator = () => {
     return new Intl.NumberFormat("es-ES", {
       style: "currency",
       currency: "EUR",
+      maximumFractionDigits: 0,
     }).format(amount);
   };
 
@@ -335,7 +336,6 @@ const BudgetGenerator = () => {
 
       .budget-row,
       .budget-totals,
-      .budget-footer,
       .budget-header {
         page-break-inside: avoid !important;
         break-inside: avoid !important;

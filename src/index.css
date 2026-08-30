@@ -161,15 +161,8 @@ All colors MUST be HSL.
 
   .budget-row,
   .budget-totals,
-  .budget-footer,
   .budget-header {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
-  }
-
-  .budget-totals {
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    page-break-after: avoid !important;
   }
 }
