@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Plus, Trash2, FileDown, Printer, MessageCircle, Loader2, BookmarkPlus, Users } from "lucide-react";
+import { Plus, Trash2, FileDown, Printer, MessageCircle, Loader2, BookmarkPlus, Users, Menu, X } from "lucide-react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ interface BudgetItem {
   id: string;
   description: string;
   amount: number;
+  amountDisplay: string;
 }
 
 const BudgetGenerator = () => {
@@ -30,23 +31,23 @@ const BudgetGenerator = () => {
   const [numeroPresupuesto, setNumeroPresupuesto] = useState("");
   const [datosCliente, setDatosCliente] = useState("");
   const [items, setItems] = useState<BudgetItem[]>([
-    { id: crypto.randomUUID(), description: "", amount: 0 },
+    { id: crypto.randomUUID(), description: "", amount: 0, amountDisplay: "" },
   ]);
   const [iva10, setIva10] = useState(false);
   const [iva21, setIva21] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [productPickerOpenFor, setProductPickerOpenFor] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const savedClients = useMemo(() => budgetStorage.getClients(), [clientPickerOpen]);
   const savedProducts = useMemo(() => budgetStorage.getProducts(), [productPickerOpenFor]);
 
-  // El formulario siempre arranca vacío: se descarta cualquier borrador previo
   useEffect(() => {
     budgetStorage.clearDraft();
   }, []);
 
-  // Antes de imprimir, expandimos los textareas para que no se corte el texto
   useEffect(() => {
     const expand = () => {
       pageRef.current?.querySelectorAll("textarea").forEach((t) => {
@@ -70,47 +71,60 @@ const BudgetGenerator = () => {
     };
   }, []);
 
+  const parseDotNumber = (raw: string): number => {
+    if (!raw) return 0;
+    const cleaned = raw.replace(/\./g, "").replace(/,/g, ".");
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+  };
+
+  const formatAmountDisplay = (raw: string): string => {
+    const digits = raw.replace(/[^\d]/g, "");
+    if (!digits) return "";
+    const num = parseInt(digits, 10);
+    return new Intl.NumberFormat("es-ES", { useGrouping: true, maximumFractionDigits: 0 }).format(num);
+  };
+
   const shareToWhatsApp = async () => {
     if (!pageRef.current) return;
-
-
+    setMenuOpen(false);
     setIsSharing(true);
     try {
       const filename = `presupuesto-${numeroPresupuesto || 'sin-numero'}.pdf`;
       const pdfBlob = await generatePdfBlob();
       const file = new File([pdfBlob], filename, { type: 'application/pdf' });
 
-      // Save to history
       saveCurrentToHistory();
-      
-      // Share via Web Share API if available
+
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
           title: `Presupuesto ${numeroPresupuesto || ''}`,
-          text: `Presupuesto ${numeroPresupuesto || ''}`
         });
-        toast.success("¡Compartido correctamente!");
+        toast.success("Abriendo WhatsApp con el PDF adjunto");
       } else {
-        // Fallback: download the PDF
         const url = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
         a.click();
         URL.revokeObjectURL(url);
-        toast.info("PDF descargado. Compártelo manualmente en WhatsApp.");
+        const waUrl = `https://wa.me/?text=${encodeURIComponent("Presupuesto")}`;
+        window.open(waUrl, "_blank");
+        toast.info("PDF descargado. Adjúntalo en WhatsApp.");
       }
     } catch (error) {
       console.error('Error sharing:', error);
-      toast.error("Error al compartir. Inténtalo de nuevo.");
+      if ((error as Error).name !== "AbortError") {
+        toast.error("Error al compartir. Inténtalo de nuevo.");
+      }
     } finally {
       setIsSharing(false);
     }
   };
 
   const addItem = () => {
-    setItems([...items, { id: crypto.randomUUID(), description: "", amount: 0 }]);
+    setItems([...items, { id: crypto.randomUUID(), description: "", amount: 0, amountDisplay: "" }]);
   };
 
   const removeItem = (id: string) => {
@@ -121,9 +135,16 @@ const BudgetGenerator = () => {
 
   const updateItem = (id: string, field: keyof BudgetItem, value: string | number) => {
     setItems(
-      items.map((item) =>
-        item.id === id ? { ...item, [field]: value } : item
-      )
+      items.map((item) => {
+        if (item.id !== id) return item;
+        if (field === "amountDisplay") {
+          const raw = String(value);
+          const display = formatAmountDisplay(raw);
+          const numeric = parseDotNumber(raw);
+          return { ...item, amountDisplay: display, amount: numeric };
+        }
+        return { ...item, [field]: value };
+      })
     );
   };
 
@@ -139,11 +160,14 @@ const BudgetGenerator = () => {
     }).format(amount);
   };
 
-  // Renders the whole screen (toolbar + budget card) to a PDF.
-  // Content flows to extra A4 pages when it is too long instead of being cropped.
+  const formatNumberDisplay = (n: number): string => {
+    if (n === 0) return "0";
+    return new Intl.NumberFormat("es-ES", { useGrouping: true, maximumFractionDigits: 2 }).format(n);
+  };
+
   const generatePdfBlob = async (): Promise<Blob> => {
     const element = pageRef.current!;
-    const A4_PX = 794; // ancho A4 a 96dpi
+    const A4_PX = 794;
     const canvas = await html2canvas(element, {
       scale: 2,
       backgroundColor: "#ffffff",
@@ -162,7 +186,6 @@ const BudgetGenerator = () => {
     const pageH = pdf.internal.pageSize.getHeight();
     const maxW = pageW - margin * 2;
     const maxH = pageH - margin * 2;
-
 
     const imgW = maxW;
     const pxPerMm = canvas.width / imgW;
@@ -201,27 +224,28 @@ const BudgetGenerator = () => {
 
   const exportToPDF = async () => {
     if (!pageRef.current) return;
+    setMenuOpen(false);
+    setIsExporting(true);
     try {
       const blob = await generatePdfBlob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `presupuesto-${numeroPresupuesto || "sin-numero"}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
       saveCurrentToHistory();
+      toast.success("PDF abierto en nueva pestaña");
     } catch (e) {
       console.error(e);
       toast.error("Error al generar el PDF");
+    } finally {
+      setIsExporting(false);
     }
   };
 
   const handlePrint = () => {
+    setMenuOpen(false);
     window.print();
   };
 
-
-  // Replace form fields with static text and hide UI-only controls in the clone.
   const prepareCloneForPdf = (doc: Document) => {
     doc.querySelectorAll("textarea").forEach((textarea) => {
       const div = doc.createElement("div");
@@ -259,7 +283,6 @@ const BudgetGenerator = () => {
     });
   };
 
-  // Inject compact, professional PDF styles into the cloned document.
   const applyPdfStyles = (doc: Document) => {
     const style = doc.createElement("style");
     style.textContent = `
@@ -276,19 +299,21 @@ const BudgetGenerator = () => {
         width: 100% !important;
         max-width: 100% !important;
         font-size: 13px !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
       .budget-card * {
         box-shadow: none !important;
         max-height: none !important;
         overflow: visible !important;
         line-height: 1.3 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
-
       .budget-card h1, .budget-card h2, .budget-card h3 {
         letter-spacing: 0.5px;
         margin: 0 !important;
       }
-      /* Compact vertical rhythm so everything fits on one page */
       .budget-card .mb-6, .budget-card .mb-8,
       .budget-card .sm\\:mb-8 { margin-bottom: 6px !important; }
       .budget-card .mt-1 { margin-top: 1px !important; }
@@ -301,10 +326,17 @@ const BudgetGenerator = () => {
       .budget-card label { font-size: 12px !important; }
       .budget-card p { margin: 0 !important; }
       .budget-card .pdf-divider { border-top: 2px solid #1a1a1a; }
+
+      .budget-row,
+      .budget-totals,
+      .budget-footer,
+      .budget-header {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
     `;
     doc.head.appendChild(style);
   };
-
 
   const saveCurrentToHistory = () => {
     const snap: SavedBudget = {
@@ -340,7 +372,12 @@ const BudgetGenerator = () => {
     setFecha(b.fecha);
     setNumeroPresupuesto(b.numero);
     setDatosCliente(b.cliente);
-    setItems(b.items.map((i) => ({ id: crypto.randomUUID(), ...i })));
+    setItems(b.items.map((i) => ({
+      id: crypto.randomUUID(),
+      description: i.description,
+      amount: i.amount,
+      amountDisplay: formatNumberDisplay(i.amount),
+    })));
     setIva10(b.iva10);
     setIva21(b.iva21);
   };
@@ -351,27 +388,60 @@ const BudgetGenerator = () => {
         <div className="print-toolbar flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
 
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">Generador de Presupuestos</h1>
-          <div className="flex gap-2 w-full sm:w-auto flex-wrap">
-            <Button onClick={handlePrint} variant="outline" className="gap-2 flex-1 sm:flex-none text-sm">
-              <Printer className="h-4 w-4" />
-              <span className="hidden sm:inline">Imprimir</span>
-            </Button>
-            <Button onClick={exportToPDF} className="gap-2 bg-primary hover:bg-primary/90 flex-1 sm:flex-none text-sm">
-              <FileDown className="h-4 w-4" />
-              <span className="hidden sm:inline">Exportar</span> PDF
-            </Button>
-            <Button 
-              onClick={shareToWhatsApp}
-              disabled={isSharing}
-              className="gap-2 bg-[#25D366] hover:bg-[#20bd5a] flex-1 sm:flex-none text-sm text-white"
+
+          {/* Hamburger menu */}
+          <div className="relative print:hidden">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="Menú de acciones"
             >
-              {isSharing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <MessageCircle className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">Enviar</span> WhatsApp
+              {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
+
+            {menuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-12 z-50 w-56 rounded-lg border bg-popover shadow-lg overflow-hidden">
+                  <button
+                    onClick={handlePrint}
+                    className="flex items-center gap-3 w-full px-4 py-3 text-sm hover:bg-accent text-left transition-colors"
+                  >
+                    <Printer className="h-4 w-4" />
+                    Imprimir
+                  </button>
+                  <button
+                    onClick={exportToPDF}
+                    disabled={isExporting}
+                    className="flex items-center gap-3 w-full px-4 py-3 text-sm hover:bg-accent text-left transition-colors disabled:opacity-50"
+                  >
+                    {isExporting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileDown className="h-4 w-4" />
+                    )}
+                    Exportar PDF
+                  </button>
+                  <button
+                    onClick={shareToWhatsApp}
+                    disabled={isSharing}
+                    className="flex items-center gap-3 w-full px-4 py-3 text-sm hover:bg-accent text-left transition-colors disabled:opacity-50"
+                  >
+                    {isSharing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MessageCircle className="h-4 w-4 text-[#25D366]" />
+                    )}
+                    Enviar WhatsApp
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -380,7 +450,6 @@ const BudgetGenerator = () => {
           <div className="budget-header flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 sm:mb-8">
             <div className="flex items-center gap-4">
               <div className="relative w-16 h-16 sm:w-24 sm:h-24">
-                {/* Paint splash logo */}
                 <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[hsl(var(--paint-yellow))] via-[hsl(var(--paint-green))] to-[hsl(var(--paint-blue))] opacity-60" />
                 <div className="absolute inset-1 sm:inset-2 rounded-full bg-[hsl(var(--paint-magenta))] flex items-center justify-center">
                   <div className="text-center text-white">
@@ -389,7 +458,6 @@ const BudgetGenerator = () => {
                     <p className="text-[6px] sm:text-[8px] leading-tight">PINTURA Y COLOR</p>
                   </div>
                 </div>
-                {/* Paint drops */}
                 <div className="absolute -top-1 left-1/2 w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-[hsl(var(--paint-yellow))]" />
                 <div className="absolute top-0 -right-1 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[hsl(var(--paint-green))]" />
                 <div className="absolute -bottom-1 right-3 sm:right-4 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[hsl(var(--paint-blue))]" />
@@ -492,7 +560,7 @@ const BudgetGenerator = () => {
               </div>
               <div className="p-2 sm:p-3 font-bold text-center text-foreground text-xs sm:text-base">IMPORTE</div>
             </div>
-            
+
             {items.map((item) => (
               <div key={item.id} className="budget-row grid grid-cols-[1fr_100px] sm:grid-cols-[1fr_150px] border-t-2 border-foreground group min-w-[280px]">
                 <div className="p-1 sm:p-2 border-r-2 border-foreground relative">
@@ -528,7 +596,7 @@ const BudgetGenerator = () => {
                               key={p.id}
                               onClick={() => {
                                 updateItem(item.id, "description", p.description);
-                                updateItem(item.id, "amount", p.amount);
+                                updateItem(item.id, "amountDisplay", String(p.amount));
                                 setProductPickerOpenFor(null);
                               }}
                               className="w-full text-left px-2 py-1.5 rounded hover:bg-accent text-sm"
@@ -554,10 +622,11 @@ const BudgetGenerator = () => {
                 </div>
                 <div className="p-1 sm:p-2 flex items-center justify-center">
                   <Input
-                    type="number"
-                    value={item.amount || ""}
-                    onChange={(e) => updateItem(item.id, "amount", parseFloat(e.target.value) || 0)}
-                    placeholder="0,00"
+                    type="text"
+                    inputMode="numeric"
+                    value={item.amountDisplay}
+                    onChange={(e) => updateItem(item.id, "amountDisplay", e.target.value)}
+                    placeholder="0"
                     className="text-right border-0 bg-transparent focus-visible:ring-0 text-sm"
                   />
                 </div>
@@ -586,7 +655,7 @@ const BudgetGenerator = () => {
               <div className="grid grid-cols-[1fr_100px] sm:grid-cols-[100px_100px] text-xs sm:text-sm">
                 <div className="p-2 font-bold border-b border-r border-foreground text-foreground">SUBTOTAL:</div>
                 <div className="p-2 text-right border-b border-foreground">{formatCurrency(subtotal)}</div>
-                
+
                 <div className="p-2 font-bold border-b border-r border-foreground flex items-center gap-2 text-foreground">
                   <input
                     type="checkbox"
@@ -597,7 +666,7 @@ const BudgetGenerator = () => {
                   IVA 10%:
                 </div>
                 <div className="p-2 text-right border-b border-foreground">{formatCurrency(ivaAmount10)}</div>
-                
+
                 <div className="p-2 font-bold border-b border-r border-foreground flex items-center gap-2 text-foreground">
                   <input
                     type="checkbox"
@@ -608,7 +677,7 @@ const BudgetGenerator = () => {
                   IVA 21%:
                 </div>
                 <div className="p-2 text-right border-b border-foreground">{formatCurrency(ivaAmount21)}</div>
-                
+
                 <div className="p-2 font-bold border-r border-foreground bg-muted text-foreground">TOTAL:</div>
                 <div className="p-2 text-right font-bold bg-muted">{formatCurrency(total)}</div>
               </div>

@@ -116,6 +116,8 @@ All colors MUST be HSL.
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   #root, .max-w-4xl {
@@ -125,7 +127,6 @@ All colors MUST be HSL.
     padding: 0 !important;
   }
 
-  /* La zona de botones se mantiene al inicio del documento */
   .print-toolbar {
     display: flex !important;
     page-break-inside: avoid;
@@ -140,10 +141,10 @@ All colors MUST be HSL.
     max-width: 100% !important;
     padding: 10px 12px !important;
     font-size: 13px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-
-  /* La descripción y los importes crecen según el texto */
   .budget-card textarea,
   .budget-card input {
     height: auto !important;
@@ -153,7 +154,6 @@ All colors MUST be HSL.
     resize: none !important;
   }
 
-  /* Filas, totales y bloques no se parten a la mitad */
   .budget-row,
   .budget-totals,
   .budget-footer,
