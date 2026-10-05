@@ -5,11 +5,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Plus, Trash2, FileDown, Printer, MessageCircle, Loader as Loader2, BookmarkPlus, Users, Menu, X } from "lucide-react";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 import { toast } from "sonner";
 import TechMenu from "./TechMenu";
 import { budgetStorage, type SavedBudget } from "@/lib/budgetStorage";
+import { buildBudgetPdf } from "@/lib/budgetPdf";
 import {
   Popover,
   PopoverContent,
@@ -167,65 +166,14 @@ const BudgetGenerator = () => {
   };
 
   const generatePdfBlob = async (): Promise<Blob> => {
-    const element = pageRef.current!;
-    const A4_PX = 794;
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-      width: A4_PX,
-      windowWidth: A4_PX,
-      onclone: (clonedDoc: Document) => {
-        applyPdfStyles(clonedDoc);
-        prepareCloneForPdf(clonedDoc);
-      },
+    return buildBudgetPdf({
+      date: fecha,
+      number: numeroPresupuesto,
+      client: datosCliente,
+      items: items.map(({ description, amount }) => ({ description, amount })),
+      iva10,
+      iva21,
     });
-
-    const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
-    pdf.setProperties({
-      title: `Presupuesto ${numeroPresupuesto || ''}`,
-      subject: 'Presupuesto',
-      creator: 'Gestor de Presupuestos Pro',
-    });
-    const margin = 4;
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const maxW = pageW - margin * 2;
-    const maxH = pageH - margin * 2;
-
-    const imgW = maxW;
-    const pxPerMm = canvas.width / imgW;
-    const sliceHeightPx = Math.floor(maxH * pxPerMm);
-
-    let renderedPx = 0;
-    let page = 0;
-    while (renderedPx < canvas.height) {
-      const currentSlice = Math.min(sliceHeightPx, canvas.height - renderedPx);
-      const sliceCanvas = document.createElement("canvas");
-      sliceCanvas.width = canvas.width;
-      sliceCanvas.height = currentSlice;
-      const ctx = sliceCanvas.getContext("2d")!;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-      ctx.drawImage(canvas, 0, renderedPx, canvas.width, currentSlice, 0, 0, canvas.width, currentSlice);
-
-      if (page > 0) pdf.addPage();
-      pdf.addImage(
-        sliceCanvas.toDataURL("image/jpeg", 0.95),
-        "JPEG",
-        margin,
-        margin,
-        imgW,
-        currentSlice / pxPerMm,
-        undefined,
-        "FAST"
-      );
-
-      renderedPx += currentSlice;
-      page += 1;
-    }
-
-    return pdf.output("blob");
   };
 
   const exportToPDF = async () => {
@@ -250,98 +198,6 @@ const BudgetGenerator = () => {
   const handlePrint = () => {
     setMenuOpen(false);
     window.print();
-  };
-
-  const prepareCloneForPdf = (doc: Document) => {
-    doc.querySelectorAll("textarea").forEach((textarea) => {
-      const div = doc.createElement("div");
-      div.style.whiteSpace = "pre-wrap";
-      div.style.wordBreak = "break-word";
-      div.style.overflow = "visible";
-      div.style.height = "auto";
-      div.style.minHeight = "0";
-      div.style.border = "0";
-      div.style.padding = "2px 4px 8px";
-      div.style.fontSize = "13px";
-      div.style.lineHeight = "1.3";
-      div.style.fontFamily = "Helvetica, Arial, sans-serif";
-      div.textContent = (textarea as HTMLTextAreaElement).value;
-      textarea.parentNode?.replaceChild(div, textarea);
-    });
-
-    doc.querySelectorAll("input").forEach((input) => {
-      const el = input as HTMLInputElement;
-      if (el.type === "checkbox") return;
-      const span = doc.createElement("span");
-      span.style.display = "inline-block";
-      span.style.width = "100%";
-      span.style.border = "0";
-      span.style.padding = "1px 2px";
-      span.style.fontSize = "13px";
-      span.style.fontFamily = "Helvetica, Arial, sans-serif";
-      span.style.textAlign = el.classList.contains("text-right") ? "right" : "left";
-      span.textContent = el.value;
-      el.parentNode?.replaceChild(span, el);
-    });
-
-    doc.querySelectorAll(".print\\:hidden").forEach((el) => {
-      (el as HTMLElement).style.display = "none";
-    });
-  };
-
-  const applyPdfStyles = (doc: Document) => {
-    const style = doc.createElement("style");
-    style.textContent = `
-      html, body { margin: 0 !important; padding: 0 !important; background: #ffffff !important; }
-      * { box-shadow: none !important; text-shadow: none !important; }
-      .max-w-4xl { max-width: 794px !important; width: 794px !important; margin: 0 !important; }
-      .budget-card {
-        font-family: Helvetica, Arial, sans-serif !important;
-        color: #1a1a1a !important;
-        border: 1px solid #1a1a1a !important;
-        box-shadow: none !important;
-        padding: 12px 14px !important;
-        margin: 0 !important;
-        background: #ffffff !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        font-size: 13px !important;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-      }
-      .budget-card * {
-        box-shadow: none !important;
-        max-height: none !important;
-        overflow: visible !important;
-        line-height: 1.3 !important;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-      }
-      .budget-card h1, .budget-card h2, .budget-card h3 {
-        letter-spacing: 0.5px;
-        margin: 0 !important;
-      }
-      .budget-card .mb-6, .budget-card .mb-8,
-      .budget-card .sm\\:mb-8 { margin-bottom: 6px !important; }
-      .budget-card .mt-1 { margin-top: 1px !important; }
-      .budget-card .gap-3, .budget-card .gap-4,
-      .budget-card .sm\\:gap-4, .budget-card .sm\\:gap-8 { gap: 6px !important; }
-      .budget-card .p-2, .budget-card .sm\\:p-3 { padding: 3px 6px !important; }
-      .budget-card .p-1, .budget-card .sm\\:p-2 { padding: 2px 4px !important; }
-      .budget-card .pt-2, .budget-card .sm\\:pt-4 { padding-top: 2px !important; }
-      .budget-card .space-y-0\\.5 > * + *, .budget-card .sm\\:space-y-1 > * + * { margin-top: 1px !important; }
-      .budget-card label { font-size: 12px !important; }
-      .budget-card p { margin: 0 !important; }
-      .budget-card .pdf-divider { border-top: 2px solid #1a1a1a; }
-
-      .budget-row,
-      .budget-totals,
-      .budget-header {
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-      }
-    `;
-    doc.head.appendChild(style);
   };
 
   const saveCurrentToHistory = () => {
@@ -455,20 +311,11 @@ const BudgetGenerator = () => {
           {/* Header */}
           <div className="budget-header flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 sm:mb-8">
             <div className="flex items-center gap-4">
-              <div className="relative w-16 h-16 sm:w-24 sm:h-24">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[hsl(var(--paint-yellow))] via-[hsl(var(--paint-green))] to-[hsl(var(--paint-blue))] opacity-60" />
-                <div className="absolute inset-1 sm:inset-2 rounded-full bg-[hsl(var(--paint-magenta))] flex items-center justify-center">
-                  <div className="text-center text-white">
-                    <p className="font-bold text-[10px] sm:text-sm leading-tight">GENDY</p>
-                    <p className="font-bold text-[10px] sm:text-sm leading-tight">FONSECA</p>
-                    <p className="text-[6px] sm:text-[8px] leading-tight">PINTURA Y COLOR</p>
-                  </div>
-                </div>
-                <div className="absolute -top-1 left-1/2 w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-[hsl(var(--paint-yellow))]" />
-                <div className="absolute top-0 -right-1 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[hsl(var(--paint-green))]" />
-                <div className="absolute -bottom-1 right-3 sm:right-4 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[hsl(var(--paint-blue))]" />
-                <div className="absolute bottom-1 sm:bottom-2 -left-1 sm:-left-2 w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-[hsl(var(--paint-orange))]" />
-              </div>
+              <img
+                src="/pwa-512x512.png"
+                alt="Logotipo de Gendy Fonseca Pintura y Color"
+                className="h-20 w-20 object-contain sm:h-24 sm:w-24"
+              />
             </div>
             <h2 className="text-xl sm:text-3xl font-bold text-foreground">PRESUPUESTO</h2>
           </div>
@@ -560,11 +407,11 @@ const BudgetGenerator = () => {
 
           {/* Items Table */}
           <div className="border-2 border-foreground mb-6 overflow-x-auto">
-            <div className="grid grid-cols-[1fr_100px] sm:grid-cols-[1fr_150px] bg-muted min-w-[280px]">
-              <div className="p-2 sm:p-3 font-bold text-center border-r-2 border-foreground text-foreground text-xs sm:text-base">
-                DESCRIPCIÓN
-              </div>
-              <div className="p-2 sm:p-3 font-bold text-center text-foreground text-xs sm:text-base">IMPORTE</div>
+              <div className="grid grid-cols-[1fr_100px] sm:grid-cols-[1fr_150px] bg-muted min-w-[280px]">
+                <div className="p-2 sm:p-3 font-bold text-center border-r-2 border-foreground text-foreground text-xs sm:text-base">
+                  DESCRIPCIÓN
+                </div>
+                <div className="p-2 sm:p-3 font-bold text-center text-foreground text-xs sm:text-base">IMPORTE</div>
             </div>
 
             {items.map((item) => (
