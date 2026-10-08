@@ -43,6 +43,20 @@ function dateLabel(value: string) {
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
+function cleanDescription(value: string) {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/```/g, "")
+    .replace(/^\s*#{1,6}\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/^\s*[-_]{3,}\s*$/gm, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 function rgb(hex: string): [number, number, number] {
   const value = hex.replace("#", "");
   return [
@@ -165,27 +179,7 @@ export async function buildBudgetPdf(data: BudgetPdfData): Promise<Blob> {
   y += clientH + gap;
 
   drawTableHeader();
-  const visibleItems = data.items.filter((item) => item.description.trim() || item.amount);
-  for (const item of visibleItems.length ? visibleItems : [{ description: "", amount: 0 }]) {
-    const lines = pdf.splitTextToSize(item.description.trim() || "—", contentW - 45);
-    const rowH = Math.max(11, lines.length * 4.2 + 6);
-    if (y + rowH > bottom) {
-      addPage();
-      drawTableHeader();
-    }
-    pdf.setDrawColor(...rgb(COLORS.ink));
-    pdf.setLineWidth(0.25);
-    pdf.rect(margin, y, contentW, rowH);
-    pdf.line(pageW - margin - 37, y, pageW - margin - 37, y + rowH);
-    text(pdf, COLORS.ink);
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(9);
-    pdf.text(lines, margin + 3, y + 5, { lineHeightFactor: 1.2 });
-    pdf.text(money(item.amount), pageW - margin - 3, y + 5, { align: "right" });
-    y += rowH;
-  }
-
-  y += gap;
+  const visibleItems = data.items.filter((item) => cleanDescription(item.description) || item.amount);
   const subtotal = visibleItems.reduce((sum, item) => sum + (item.amount || 0), 0);
   const iva10 = data.iva10 ? subtotal * 0.1 : 0;
   const iva21 = data.iva21 ? subtotal * 0.21 : 0;
@@ -194,6 +188,54 @@ export async function buildBudgetPdf(data: BudgetPdfData): Promise<Blob> {
   if (data.iva10) taxes.push(["IVA 10%", iva10]);
   if (data.iva21) taxes.push(["IVA 21%", iva21]);
   const totalsH = 9 + taxes.length * 8 + 12;
+
+  const itemsToDraw = visibleItems.length ? visibleItems : [{ description: "", amount: 0 }];
+  const descriptionWidth = contentW - 45;
+  const lineHeight = 4.3;
+
+  for (const item of itemsToDraw) {
+    const lines = pdf.splitTextToSize(cleanDescription(item.description) || "—", descriptionWidth);
+    let remainingLines = [...lines];
+    let firstChunk = true;
+
+    // A description is allowed to continue on the next page. This prevents a
+    // long item from leaving an almost-empty first page and pushing totals
+    // onto a needless third page.
+    while (remainingLines.length) {
+      const availableHeight = bottom - y;
+      const maxLines = Math.floor((availableHeight - 6) / lineHeight);
+
+      if (maxLines < 1) {
+        addPage();
+        drawTableHeader();
+        continue;
+      }
+
+      const chunk = remainingLines.splice(0, Math.min(maxLines, remainingLines.length));
+      const rowH = Math.max(11, chunk.length * lineHeight + 6);
+
+      pdf.setDrawColor(...rgb(COLORS.ink));
+      pdf.setLineWidth(0.25);
+      pdf.rect(margin, y, contentW, rowH);
+      pdf.line(pageW - margin - 37, y, pageW - margin - 37, y + rowH);
+      text(pdf, COLORS.ink);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.text(chunk, margin + 3, y + 5, { lineHeightFactor: 1.15 });
+      if (firstChunk) {
+        pdf.text(money(item.amount), pageW - margin - 3, y + 5, { align: "right" });
+        firstChunk = false;
+      }
+      y += rowH;
+
+      if (remainingLines.length) {
+        addPage();
+        drawTableHeader();
+      }
+    }
+  }
+
+  y += gap;
 
   // Totals flow directly into the original fiscal footer.
   ensure(totalsH + gap + 19);
